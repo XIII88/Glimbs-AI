@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glimbs AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .container {
+            max-width: 800px;
+        }
+        .file-input-label {
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+        }
+        .file-input-label:hover {
+            background-color: #e5e7eb;
+        }
+        #loading {
+            border-top-color: #3b82f6;
+            -webkit-animation: spinner 1.2s linear infinite;
+            animation: spinner 1.2s linear infinite;
+        }
+        @-webkit-keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+    <div class="container bg-white p-6 md:p-8 rounded-2xl shadow-xl w-full">
+        <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Glimbs AI</h1>
+        <p class="text-center text-gray-600 mb-8">
+            Загрузите фото, и ИИ кратко опишет его и определит местоположение.
+        </p>
+
+        <!-- Контейнер для загрузки файла и превью -->
+        <div class="mb-8">
+            <label for="imageUpload" class="file-input-label flex flex-col items-center justify-center w-full h-48 border-2 border-gray-300 border-dashed rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
+                <div id="upload-icon" class="flex flex-col items-center justify-center pt-5 pb-6">
+                    <svg class="w-10 h-10 mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-4-4v-1a4 4 0 014-4h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 001.414 0l3.414-3.414a1 1 0 01.707-.293H17a4 4 0 014 4v1a4 4 0 01-4 4h-1"></path>
+                    </svg>
+                    <p class="mb-2 text-sm text-gray-500">Нажмите, чтобы загрузить фото</p>
+                    <p class="text-xs text-gray-500">JPG, PNG, WEBP (макс. 10 МБ)</p>
+                </div>
+                <img id="imagePreview" class="hidden w-full h-full object-contain p-2 rounded-2xl" src="#" alt="Предварительный просмотр изображения" />
+            </label>
+            <input id="imageUpload" type="file" class="hidden" accept="image/jpeg,image/png,image/webp" />
+        </div>
+
+        <!-- Кнопка и индикатор загрузки -->
+        <div class="flex flex-col items-center">
+            <button id="analyzeButton" class="w-full px-6 py-3 bg-blue-500 text-white font-bold rounded-xl shadow-lg hover:bg-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-blue-300" disabled>
+                Анализировать
+            </button>
+            <div id="loading" class="hidden mt-4 w-8 h-8 border-4 border-gray-200 rounded-full"></div>
+        </div>
+
+        <!-- Контейнер для результатов -->
+        <div id="resultContainer" class="mt-8 hidden">
+            <h2 class="text-xl font-semibold mb-2 text-gray-700">Результат анализа:</h2>
+            <div id="resultOutput" class="bg-gray-50 p-4 rounded-xl border border-gray-200 text-gray-800 leading-relaxed">
+                <!-- Результат будет здесь -->
+            </div>
+        </div>
+
+        <!-- Контейнер для ошибок -->
+        <div id="errorContainer" class="mt-8 hidden">
+            <h2 class="text-xl font-semibold mb-2 text-red-600">Ошибка:</h2>
+            <div id="errorOutput" class="bg-red-50 p-4 rounded-xl border border-red-200 text-red-800 leading-relaxed">
+                <!-- Ошибка будет здесь -->
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Получаем элементы DOM
+        const imageUpload = document.getElementById('imageUpload');
+        const imagePreview = document.getElementById('imagePreview');
+        const analyzeButton = document.getElementById('analyzeButton');
+        const loadingSpinner = document.getElementById('loading');
+        const resultContainer = document.getElementById('resultContainer');
+        const resultOutput = document.getElementById('resultOutput');
+        const errorContainer = document.getElementById('errorContainer');
+        const errorOutput = document.getElementById('errorOutput');
+        const uploadIcon = document.getElementById('upload-icon');
+
+        let uploadedFile = null; // Переменная для хранения загруженного файла
+
+        // Функция для конвертации файла в base64
+        const fileToBase64 = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]); // Берем только base64-часть
+                reader.onerror = (error) => reject(error);
+                reader.readAsDataURL(file);
+            });
+        };
+
+        // Функция для конвертации простого Markdown в HTML
+        const markdownToHtml = (markdown) => {
+            // Замена **жирного** текста на <strong>жирный</strong>
+            let html = markdown.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            return html;
+        };
+
+        // Обработчик изменения файла
+        imageUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                uploadedFile = file;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imagePreview.src = e.target.result;
+                    imagePreview.classList.remove('hidden');
+                    uploadIcon.classList.add('hidden');
+                    analyzeButton.disabled = false;
+                };
+                reader.readAsDataURL(file);
+                // Скрываем предыдущие результаты и ошибки
+                resultContainer.classList.add('hidden');
+                errorContainer.classList.add('hidden');
+            } else {
+                uploadedFile = null;
+                imagePreview.classList.add('hidden');
+                uploadIcon.classList.remove('hidden');
+                analyzeButton.disabled = true;
+            }
+        });
+
+        // Обработчик нажатия на кнопку "Анализировать"
+        analyzeButton.addEventListener('click', async () => {
+            if (!uploadedFile) {
+                return;
+            }
+
+            // Показываем индикатор загрузки и отключаем кнопку
+            loadingSpinner.classList.remove('hidden');
+            analyzeButton.disabled = true;
+            resultContainer.classList.add('hidden');
+            errorContainer.classList.add('hidden');
+            resultOutput.innerHTML = '';
+            errorOutput.innerHTML = '';
+
+            try {
+                // Конвертируем изображение в base64
+                const base64Data = await fileToBase64(uploadedFile);
+
+                // Собираем данные для API
+                const prompt = "Кратко опиши, что изображено на фото, и определи, где это находится. Отвечай на русском языке. Используй жирный шрифт для названий мест.";
+                const payload = {
+                    contents: [{
+                        role: "user",
+                        parts: [
+                            { text: prompt },
+                            {
+                                inlineData: {
+                                    mimeType: uploadedFile.type,
+                                    data: base64Data
+                                }
+                            }
+                        ]
+                    }],
+                };
+
+                const apiKey = "AIzaSyCNUwQzg6cyfZJdiCvF5m34tcdjaO9XNWo";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                let response;
+                let retryCount = 0;
+                const maxRetries = 5;
+                const baseDelay = 1000; // 1 second
+
+                while (retryCount < maxRetries) {
+                    try {
+                        response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (response.status === 429) {
+                            const delay = baseDelay * Math.pow(2, retryCount);
+                            console.warn(`API rate limit exceeded. Retrying in ${delay}ms...`);
+                            await new Promise(res => setTimeout(res, delay));
+                            retryCount++;
+                            continue;
+                        }
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        break;
+                    } catch (error) {
+                        if (retryCount >= maxRetries - 1) {
+                            throw error;
+                        }
+                        const delay = baseDelay * Math.pow(2, retryCount);
+                        console.error(`Fetch failed, retrying in ${delay}ms...`, error);
+                        await new Promise(res => setTimeout(res, delay));
+                        retryCount++;
+                    }
+                }
+
+                if (!response) {
+                    throw new Error("Failed to get a response after multiple retries.");
+                }
+
+                const result = await response.json();
+                const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (text) {
+                    // Конвертируем ответ из Markdown в HTML перед отображением
+                    const htmlContent = markdownToHtml(text);
+                    resultOutput.innerHTML = htmlContent;
+                    resultContainer.classList.remove('hidden');
+                } else {
+                    errorOutput.textContent = 'Не удалось получить описание. Пожалуйста, попробуйте снова.';
+                    errorContainer.classList.remove('hidden');
+                }
+
+            } catch (error) {
+                console.error('Ошибка при обращении к ИИ:', error);
+                errorOutput.textContent = `Произошла ошибка: ${error.message}. Пожалуйста, попробуйте снова.`;
+                errorContainer.classList.remove('hidden');
+            } finally {
+                // Скрываем индикатор загрузки и включаем кнопку
+                loadingSpinner.classList.add('hidden');
+                analyzeButton.disabled = false;
+            }
+        });
+    </script>
+
+</body>
+</html>
+
